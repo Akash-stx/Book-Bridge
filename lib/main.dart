@@ -123,13 +123,13 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
   String? selectedFilePath;
   StringBuffer logOutput = StringBuffer();
   String SelectedFileInfo = '';
-  final bool _isError = false;
+  bool _isError = false;
+  bool _ConversionSessionOngoing = false;
 
   String sf = '@f_'; //selected file string
   String fsl = '@s_'; // file save location
   final String ffmpeg = 'ffmpeg'; // ffmpeg string
   final String ext = '@ext_'; // ffmpeg string
-  final bool _ConversionSessionOngoing = false;
 
   String manualPath = '';
   late List<DropdownMenuItem<String>> dropdownItems;
@@ -159,6 +159,14 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
     createNewThread();
   }
 
+  void _scrollToBottom() {
+    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+  }
+
+  void cancelPdfProcess() {
+    secondThread?.send(messageThread(name: Status.initiatecancelPdfProcess));
+  }
+
 /************************************************************************ */
   void createNewThread() {
     Isolate.spawn(processPdfViaThreadConnect, receivePort.sendPort);
@@ -172,9 +180,33 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
         case Status.pdfConversionOutPutCallBack:
           setState(() {
             progress = message.arguments[1]!.toDouble();
-            logOutput.write(message.arguments[0] + '\n');
+            logOutput.write(message.arguments[0] + '\n\n');
+            _scrollToBottom();
           });
           break;
+        case Status.pdfConversionSuccess:
+          String status = message.arguments[0];
+          setState(() {
+            progress = 0.0;
+            isConverting = false;
+            _ConversionSessionOngoing = false;
+            if (status == "success") {
+              showDialoge(
+                  message:
+                      "PDF has been successfully bundled, ensuring each part is under 10MB.");
+            }
+          });
+          break;
+        case Status.canceledSuccess:
+          setState(() {
+            progress = 0.0;
+            isConverting = false;
+            _ConversionSessionOngoing = false;
+            showDialoge(
+                message: "Pdf process was cancelled.", heading: "Cancelled");
+          });
+          break;
+
         default:
           print("no fuction declared");
       }
@@ -182,12 +214,12 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
   }
 /************************************************************************ */
 
-  void showDialoge({String? message}) {
+  void showDialoge({String? message, String heading = "success"}) {
     if (message != null) {
       showDialog(
         context: context,
         builder: (_) => AlertDialog(
-          title: const Text("Error", textAlign: TextAlign.center),
+          title: Text(heading, textAlign: TextAlign.center),
           content: Text(message, textAlign: TextAlign.center),
           actions: [
             TextButton(
@@ -198,13 +230,6 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
         ),
       );
     }
-  }
-
-  void _scrollToBottom() {
-    if (isSwitched) {
-      return;
-    }
-    _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
   }
 
   // //clearing cashe on app start and on close
@@ -219,7 +244,9 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
 
   void setPdfPath(String path) {
     selectedFilePath = path;
-    SelectedFileInfo = path;
+    setState(() {
+      logOutput.clear();
+    });
   }
 
   void processSelectedPdf() async {
@@ -329,7 +356,9 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
                         child: ElevatedButton.icon(
                           // onPressed:
                           //     isConverting ? cancelConversion : startConversion,
-                          onPressed: processSelectedPdf,
+                          onPressed: isConverting
+                              ? cancelPdfProcess
+                              : processSelectedPdf,
                           icon: const Icon(Icons.play_circle),
                           label: const Text("Start"),
                         ),

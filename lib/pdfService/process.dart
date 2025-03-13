@@ -11,6 +11,8 @@ import 'dart:ui';
 ReceivePort receivePort = ReceivePort();
 SendPort? passDataTomainUI;
 const int maximumSize = 10 * 1024 * 1024; // 10MB in bytes
+bool cancelledPdfProcess = false;
+bool isAnyPdfProcess = false;
 
 //POINT WHERE ALL THE FUNCITONS ARE MAPPED
 // IT IS CALLED BY ANOTHER THREAD
@@ -41,7 +43,22 @@ void processPdfViaThreadConnect(SendPort mainSendPort) async {
                 status: Status.pdfConversionOutPutCallBack,
                 arguments: [event, percentage]));
           },
-        ).then((result) => {pdfinsatnce = result});
+        ).then((result) {
+          pdfinsatnce = result;
+        }).whenComplete(() {
+          isAnyPdfProcess = false;
+          mainSendPort.send(ThreadCommunication(
+              status: Status.pdfConversionSuccess,
+              arguments: [pdfinsatnce != null ? "success" : "failed"]));
+        });
+        break;
+
+      case Status.initiatecancelPdfProcess:
+        if (isAnyPdfProcess) {
+          cancelledPdfProcess = true;
+        } else {
+          cancelledPdfProcess = false;
+        }
         break;
       case Status.log:
         print(message.arguments[0]);
@@ -56,6 +73,7 @@ Future<PdfProcessedData?> processPdfToBundles({
   String PathOfPdf = "/storage/emulated/0/Download/example.pdf",
   void Function(String event, int? percentage)? callback,
 }) async {
+  isAnyPdfProcess = true;
   try {
     //load pdf to memory via path
     PdfDocument loadedDocument =
@@ -69,8 +87,15 @@ Future<PdfProcessedData?> processPdfToBundles({
     int currentPercentage =
         percentageCalculate(percentageUsedForTotalCalculation, tenthPercentage);
 
-    callback?.call("loaded your pdf found pages $pageCount", currentPercentage);
-
+    callback?.call("Total Pages Found: $pageCount", currentPercentage);
+    await Future.delayed(Duration(milliseconds: 1));
+    if (cancelledPdfProcess) {
+      cancelledPdfProcess = false;
+      loadedDocument.dispose();
+      passDataTomainUI!
+          .send(ThreadCommunication(status: Status.canceledSuccess));
+      return null;
+    }
     int currentSlize = 0;
     int currentSlizeSizeinbyte = 0;
 
@@ -82,7 +107,22 @@ Future<PdfProcessedData?> processPdfToBundles({
 
     PdfDocument newPdfFile = getNewPdfFileInstance();
     bool isAnySliceOfPdfCreated = false;
+    int cancelTime = 0;
     for (var i = 0; i < pageCount; i++) {
+      if (cancelledPdfProcess) {
+        cancelledPdfProcess = false;
+        loadedDocument.dispose();
+        passDataTomainUI!
+            .send(ThreadCommunication(status: Status.canceledSuccess));
+        return null;
+      }
+      if (cancelTime / pageCount * 100 > 7) {
+        //allow 7% regular internal to check cancel call
+        await Future.delayed(Duration(milliseconds: 1));
+        cancelTime = 0;
+      }
+      cancelTime++;
+
       PdfPage loadedPage = loadedDocument.pages[i];
 
       int pageSize = getPageSize(loadedPage);
@@ -103,7 +143,7 @@ Future<PdfProcessedData?> processPdfToBundles({
               percentageUsedForTotalCalculation, tenthPercentage, i + 1);
 
           callback?.call(
-              "page no (${i + 1}) is bundled in pdf slice $currentSlize",
+              "Page ${i + 1} has been successfully grouped into PDF slice $currentSlize for processing",
               currentPercentage);
         } else {
           pdfSliceAloowedToProcess[currentSlize++] =
@@ -123,7 +163,7 @@ Future<PdfProcessedData?> processPdfToBundles({
               percentageUsedForTotalCalculation, tenthPercentage, i + 1);
 
           callback?.call(
-              "page no (${i + 1}) is bundled in pdf slice $currentSlize",
+              "Page ${i + 1} has been successfully grouped into PDF slice $currentSlize for processing",
               currentPercentage);
         }
       } else {
@@ -131,8 +171,8 @@ Future<PdfProcessedData?> processPdfToBundles({
             percentageUsedForTotalCalculation, tenthPercentage, i + 1);
         callback?.call(
             isTxtReadable
-                ? "page no (${i + 1}) is more than 10 mb is it not allowed in bundled pdf"
-                : "page no (${i + 1}) is not readable",
+                ? "Page ${i + 1} exceeds 10MB and cannot be included in the bundled PDF"
+                : "Page ${i + 1} could not be processed.",
             currentPercentage);
 
         perPageInfo[i] = PerPdfPageInfo(
@@ -146,7 +186,7 @@ Future<PdfProcessedData?> processPdfToBundles({
 
     if (isAnySliceOfPdfCreated) {
       callback?.call(
-          "pdf bundled and ready for translation", currentPercentage);
+          "The PDF bundle is now ready for translation", currentPercentage);
       pdfSliceAloowedToProcess[currentSlize++] =
           PerPdfSliceInfo(pdf: newPdfFile, size: currentSlizeSizeinbyte);
     }
@@ -156,7 +196,15 @@ Future<PdfProcessedData?> processPdfToBundles({
         pdfName: PathOfPdf,
         pdfSliceAloowedToProcess: pdfSliceAloowedToProcess,
         perPageInfo: perPageInfo);
-    callback?.call("finished", 100);
+    await Future.delayed(Duration(milliseconds: 1));
+    if (cancelledPdfProcess) {
+      cancelledPdfProcess = false;
+      loadedDocument.dispose();
+      passDataTomainUI!
+          .send(ThreadCommunication(status: Status.canceledSuccess));
+      return null;
+    }
+    callback?.call("Process Completed Successfully", 100);
     return result;
   } catch (e) {
     callback?.call(e.toString(), 0);
@@ -213,16 +261,18 @@ int percentageCalculate(int total, int currentValue, [int index = 0]) {
 }
 
 dynamic getArgumentAt(
-    {required ThreadCommunication message, required int index}) {
+    {required ThreadCommunication message,
+    required int index,
+    dynamic defaultValue}) {
   try {
     if (message.arguments != null &&
         message.arguments!.isNotEmpty &&
         index >= 0 &&
         index < message.arguments!.length) {
-      return message.arguments![index];
+      return message.arguments![index] ?? defaultValue;
     }
   } catch (e) {
     print("Error accessing index $index: $e"); // Logs the error if any
   }
-  return null; // Returns null if out of bounds or any error occurs
+  return defaultValue; // Returns null if out of bounds or any error occurs
 }
