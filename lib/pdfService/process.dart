@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:isolate';
+import 'package:book_bridge/main.dart';
 import 'package:book_bridge/pdfService/processed_pdf_data.dart';
 import 'package:book_bridge/pdfService/utils/per_page_Info.dart';
 import 'package:book_bridge/pdfService/utils/per_pdf_slice_info.dart';
@@ -7,6 +8,7 @@ import 'package:book_bridge/pdfService/utils/status_enum.dart';
 import 'package:book_bridge/pdfService/utils/thread_communication.dart';
 import 'package:syncfusion_flutter_pdf/pdf.dart';
 import 'dart:ui';
+import 'package:path/path.dart' as path;
 
 ReceivePort receivePort = ReceivePort();
 SendPort? passDataTomainUI;
@@ -78,6 +80,8 @@ Future<PdfProcessedData?> processPdfToBundles({
   void Function(String event, int? percentage)? callback,
 }) async {
   isAnyPdfProcess = true;
+  String fileName = path.basename(PathOfPdf);
+
   try {
     //load pdf to memory via path
     PdfDocument loadedDocument =
@@ -92,7 +96,7 @@ Future<PdfProcessedData?> processPdfToBundles({
         percentageCalculate(percentageUsedForTotalCalculation, tenthPercentage);
 
     callback?.call("Total Pages Found: $pageCount", currentPercentage);
-    await Future.delayed(Duration(milliseconds: 1));
+    await Future.delayed(const Duration(milliseconds: 1));
     if (cancelledPdfProcess) {
       cancelledPdfProcess = false;
       loadedDocument.dispose();
@@ -121,20 +125,26 @@ Future<PdfProcessedData?> processPdfToBundles({
         return null;
       }
       if (cancelTime / pageCount * 100 > 7) {
-        //allow 7% regular internal to check cancel call
-        await Future.delayed(Duration(milliseconds: 1));
+        //allow 7% regular internal to check cancel call refrence is true or not
+        await Future.delayed(const Duration(milliseconds: 1));
         cancelTime = 0;
       }
       cancelTime++;
 
       PdfPage loadedPage = loadedDocument.pages[i];
 
+      //issue 01 -> some pdf faced issue of copying after disposing so now it only disposed on succesfull copy
+
       int pageSize = getPageSize(loadedPage);
-      bool isTxtReadable = isTextPresent(loadedDocument, i);
+      bool isTxtReadable = isTextPresent(
+        loadedDocument,
+        i,
+      );
 
       if (isTxtReadable && pageSize < maximumSize) {
         if (currentSlizeSizeinbyte + pageSize < maximumSize) {
           currentSlizeSizeinbyte += pageSize;
+          // issue 01 -> resolution disposing one succesfull copy
           copyPage(newPdfFile, loadedPage);
 
           perPageInfo[i] = PerPdfPageInfo(
@@ -150,8 +160,10 @@ Future<PdfProcessedData?> processPdfToBundles({
               "Page ${i + 1} has been successfully grouped into PDF slice $currentSlize for processing",
               currentPercentage);
         } else {
-          pdfSliceAloowedToProcess[currentSlize++] =
+          savePdf("$dirPath${currentSlize + 1}-$fileName", newPdfFile);
+          pdfSliceAloowedToProcess[currentSlize + 1] =
               PerPdfSliceInfo(pdf: newPdfFile, size: currentSlizeSizeinbyte);
+          ++currentSlize;
 
           newPdfFile = getNewPdfFileInstance();
 
@@ -185,13 +197,13 @@ Future<PdfProcessedData?> processPdfToBundles({
             pageNumber: i,
             failedPages: loadedPage);
       }
-      print("Percentage $currentPercentage %");
     }
 
     if (isAnySliceOfPdfCreated) {
       callback?.call(
           "The PDF bundle is now ready for translation", currentPercentage);
-      pdfSliceAloowedToProcess[currentSlize++] =
+      savePdf("$dirPath${currentSlize + 1}-$fileName", newPdfFile);
+      pdfSliceAloowedToProcess[currentSlize + 1] =
           PerPdfSliceInfo(pdf: newPdfFile, size: currentSlizeSizeinbyte);
     }
     final PdfProcessedData result = PdfProcessedData(
@@ -200,7 +212,7 @@ Future<PdfProcessedData?> processPdfToBundles({
         pdfName: PathOfPdf,
         pdfSliceAloowedToProcess: pdfSliceAloowedToProcess,
         perPageInfo: perPageInfo);
-    await Future.delayed(Duration(milliseconds: 1));
+    await Future.delayed(const Duration(milliseconds: 1));
     if (cancelledPdfProcess) {
       cancelledPdfProcess = false;
       loadedDocument.dispose();
@@ -217,20 +229,23 @@ Future<PdfProcessedData?> processPdfToBundles({
 }
 
 int getPageSize(PdfPage loadedPage) {
-  PdfDocument document = PdfDocument();
-  document.pageSettings.margins.all = 0;
-  PdfPage page = document.pages.add();
+  PdfDocument newDummydocument = PdfDocument();
   PdfTemplate template = loadedPage.createTemplate();
+  newDummydocument.pageSettings.margins.all = 0;
+  PdfPage page = newDummydocument.pages.add();
+
   page.graphics.drawPdfTemplate(template, const Offset(0, 0));
-  List<int> pdfsize = document.saveSync();
-  document.dispose();
+  List<int> pdfsize = newDummydocument.saveSync();
+  //issue 01
+  //newDummydocument.dispose(); some issue with this dispose and template -> some pdf faced issue like template
+  // is not able to copy after disposeing -> currently beliving that garbage will collect this after this method stack exit
   return pdfsize.length;
 }
 
-void copyPage(PdfDocument document, PdfPage copyFrom) {
+void copyPage(PdfDocument documentToAdd, PdfPage loadedPage) {
   try {
-    PdfPage page = document.pages.add();
-    PdfTemplate template = copyFrom.createTemplate();
+    PdfTemplate template = loadedPage.createTemplate();
+    PdfPage page = documentToAdd.pages.add();
     page.graphics.drawPdfTemplate(template, const Offset(0, 0));
   } catch (e) {
     print("Copy failed");
@@ -247,20 +262,6 @@ PdfDocument getNewPdfFileInstance() {
   PdfDocument newPdfFile = PdfDocument();
   newPdfFile.pageSettings.margins.all = 0;
   return newPdfFile;
-}
-
-void extrass() {
-  // print("is page redable $perPageInfo");
-  // print("PDF size of number  is  $pdfSliceAloowedToProcess");
-  // if (pdfsize.length < tenMB) {
-  //   print("PDF size is less than 10MB");
-  // } else {
-  //   print("PDF size is 10MB or more");
-  // }
-  // //Save and dispose of the PDF document.
-  // File("/storage/emulated/0/Download/output_page_new.pdf")
-  //     .writeAsBytes(pdfSliceAloowedToProcess[0]!.saveSync());
-  // loadedDocument.dispose();
 }
 
 int percentageCalculate(int total, int currentValue, [int index = 0]) {
@@ -283,4 +284,9 @@ dynamic getArgumentAt(
     print("Error accessing index $index: $e"); // Logs the error if any
   }
   return defaultValue; // Returns null if out of bounds or any error occurs
+}
+
+void savePdf(String fileName, PdfDocument slicedPdfObject) {
+  File(fileName).writeAsBytes(slicedPdfObject.saveSync());
+  slicedPdfObject.dispose();
 }

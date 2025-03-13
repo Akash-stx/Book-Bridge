@@ -27,6 +27,8 @@ const List<Widget> hint = [
       "• To keep this process running in the background, go to **Settings > Battery > Battery Optimization**, find this app, and select **Don't optimize**. This prevents the system from stopping the process when the app is not in use."),
 ];
 
+String dirPath = "/storage/emulated/0/Download/bookBridge/currentSliced/";
+
 class BookBridge extends StatelessWidget {
   const BookBridge({super.key});
 
@@ -123,7 +125,7 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
   String? selectedFilePath;
   StringBuffer logOutput = StringBuffer();
   String SelectedFileInfo = '';
-  bool _isError = false;
+  final bool _isError = false;
   bool _ConversionSessionOngoing = false;
 
   String sf = '@f_'; //selected file string
@@ -144,8 +146,8 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
   final bool _enableoverrideFile = false;
   static const int maxLogs = 500;
   int logCount = 0;
-  double _scrollPositionFile = 0.0;
-  double _scrollPositionInfo = 0.0;
+  final double _scrollPositionFile = 0.0;
+  final double _scrollPositionInfo = 0.0;
 
   @override
   void initState() {
@@ -155,6 +157,12 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
         showCustomFilePicker(context);
       })
     ];
+
+    Directory dir = Directory(dirPath);
+    if (!dir.existsSync()) {
+      print("Directory does not exist. Creating it...");
+      dir.createSync(recursive: true); // Creates the directory
+    }
     //create a new thread and make that alive so that we can run pdf operation side by side AND Not freez UI
     createNewThread();
   }
@@ -167,7 +175,7 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
     secondThread?.send(messageThread(name: Status.initiatecancelPdfProcess));
   }
 
-/************************************************************************ */
+  /// **********************************************************************
   void createNewThread() {
     Isolate.spawn(processPdfViaThreadConnect, receivePort.sendPort);
     receivePort.listen((message) {
@@ -216,7 +224,8 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
       }
     });
   }
-/************************************************************************ */
+
+  /// **********************************************************************
 
   void showDialoge({String? message, String heading = "success"}) {
     if (message != null) {
