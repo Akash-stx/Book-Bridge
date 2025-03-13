@@ -24,47 +24,51 @@ void processPdfViaThreadConnect(SendPort mainSendPort) async {
   PdfProcessedData? pdfinsatnce;
 /************************************** */
   receivePort.listen((message) {
-    switch (message.status) {
-      case Status.stop:
-        print("Isolate stopping...");
-        receivePort.close();
-        Isolate.exit();
-        break;
-      case Status.convertSelectedPdf:
-        if (pdfinsatnce != null) {
-          pdfinsatnce!.mainPdfInstance.dispose();
-          pdfinsatnce = null;
-        }
+    try {
+      switch (message.status) {
+        case Status.stop:
+          print("Isolate stopping...");
+          receivePort.close();
+          Isolate.exit();
+          break;
+        case Status.convertSelectedPdf:
+          if (pdfinsatnce != null) {
+            pdfinsatnce!.mainPdfInstance.dispose();
+            pdfinsatnce = null;
+          }
 
-        processPdfToBundles(
-          PathOfPdf: getArgumentAt(message: message, index: 0),
-          callback: (event, percentage) {
+          processPdfToBundles(
+            PathOfPdf: getArgumentAt(message: message, index: 0),
+            callback: (event, percentage) {
+              mainSendPort.send(ThreadCommunication(
+                  status: Status.pdfConversionOutPutCallBack,
+                  arguments: [event, percentage]));
+            },
+          ).then((result) {
+            pdfinsatnce = result;
+          }).whenComplete(() {
+            isAnyPdfProcess = false;
             mainSendPort.send(ThreadCommunication(
-                status: Status.pdfConversionOutPutCallBack,
-                arguments: [event, percentage]));
-          },
-        ).then((result) {
-          pdfinsatnce = result;
-        }).whenComplete(() {
-          isAnyPdfProcess = false;
-          mainSendPort.send(ThreadCommunication(
-              status: Status.pdfConversionSuccess,
-              arguments: [pdfinsatnce != null ? "success" : "failed"]));
-        });
-        break;
+                status: Status.pdfConversionSuccess,
+                arguments: [pdfinsatnce != null ? "success" : "failed"]));
+          });
+          break;
 
-      case Status.initiatecancelPdfProcess:
-        if (isAnyPdfProcess) {
-          cancelledPdfProcess = true;
-        } else {
-          cancelledPdfProcess = false;
-        }
-        break;
-      case Status.log:
-        print(message.arguments[0]);
-        break;
-      default:
-        print("no fuction declared");
+        case Status.initiatecancelPdfProcess:
+          if (isAnyPdfProcess) {
+            cancelledPdfProcess = true;
+          } else {
+            cancelledPdfProcess = false;
+          }
+          break;
+        case Status.log:
+          print(message.arguments[0]);
+          break;
+        default:
+          print("no fuction declared");
+      }
+    } catch (e) {
+      print(e.toString());
     }
   });
 }
@@ -224,9 +228,13 @@ int getPageSize(PdfPage loadedPage) {
 }
 
 void copyPage(PdfDocument document, PdfPage copyFrom) {
-  PdfPage page = document.pages.add();
-  PdfTemplate template = copyFrom.createTemplate();
-  page.graphics.drawPdfTemplate(template, const Offset(0, 0));
+  try {
+    PdfPage page = document.pages.add();
+    PdfTemplate template = copyFrom.createTemplate();
+    page.graphics.drawPdfTemplate(template, const Offset(0, 0));
+  } catch (e) {
+    print("Copy failed");
+  }
 }
 
 bool isTextPresent(PdfDocument loadedDocument, int pagenumber) {

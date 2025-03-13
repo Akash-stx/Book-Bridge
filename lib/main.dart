@@ -171,44 +171,48 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
   void createNewThread() {
     Isolate.spawn(processPdfViaThreadConnect, receivePort.sendPort);
     receivePort.listen((message) {
-      switch (message.status) {
-        case Status.connectBack:
-          secondThread = message.arguments[0];
-          secondThread?.send(messageThread(
-              name: Status.log, arguments: ["succesfuly connected"]));
-          break;
-        case Status.pdfConversionOutPutCallBack:
-          setState(() {
-            progress = message.arguments[1]!.toDouble();
-            logOutput.write(message.arguments[0] + '\n\n');
-            _scrollToBottom();
-          });
-          break;
-        case Status.pdfConversionSuccess:
-          String status = message.arguments[0];
-          setState(() {
-            progress = 0.0;
-            isConverting = false;
-            _ConversionSessionOngoing = false;
-            if (status == "success") {
+      try {
+        switch (message.status) {
+          case Status.connectBack:
+            secondThread = message.arguments[0];
+            secondThread?.send(messageThread(
+                name: Status.log, arguments: ["succesfuly connected"]));
+            break;
+          case Status.pdfConversionOutPutCallBack:
+            setState(() {
+              progress = message.arguments[1]!.toDouble();
+              logOutput.write(message.arguments[0] + '\n\n');
+              _scrollToBottom();
+            });
+            break;
+          case Status.pdfConversionSuccess:
+            String status = message.arguments[0];
+            setState(() {
+              progress = 0.0;
+              isConverting = false;
+              _ConversionSessionOngoing = false;
+              if (status == "success") {
+                showDialoge(
+                    message:
+                        "PDF has been successfully bundled, ensuring each part is under 10MB.");
+              }
+            });
+            break;
+          case Status.canceledSuccess:
+            setState(() {
+              progress = 0.0;
+              isConverting = false;
+              _ConversionSessionOngoing = false;
               showDialoge(
-                  message:
-                      "PDF has been successfully bundled, ensuring each part is under 10MB.");
-            }
-          });
-          break;
-        case Status.canceledSuccess:
-          setState(() {
-            progress = 0.0;
-            isConverting = false;
-            _ConversionSessionOngoing = false;
-            showDialoge(
-                message: "Pdf process was cancelled.", heading: "Cancelled");
-          });
-          break;
+                  message: "Pdf process was cancelled.", heading: "Cancelled");
+            });
+            break;
 
-        default:
-          print("no fuction declared");
+          default:
+            print("no fuction declared");
+        }
+      } catch (e) {
+        print(e.toString());
       }
     });
   }
