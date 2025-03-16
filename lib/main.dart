@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:book_bridge/pdfService/process.dart';
 import 'package:book_bridge/pdfService/utils/actions_builder.dart';
@@ -5,6 +6,7 @@ import 'package:book_bridge/pdfService/utils/file_detail.dart';
 import 'package:book_bridge/pdfService/utils/status_enum.dart';
 import 'package:book_bridge/pdfService/utils/thread_communication.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:device_info_plus/device_info_plus.dart';
 import 'package:path/path.dart' as path;
@@ -115,6 +117,10 @@ SendPort? secondThread;
 
 class _BookBridgeHomeState extends State<BookBridgeHome>
     with WidgetsBindingObserver {
+  final MethodChannel _channel =
+      const MethodChannel('com.devakash.book_bridge/initalize');
+  StreamSubscription? _subscription;
+
   final ScrollController _scrollController = ScrollController();
   ReceivePort receivePort = ReceivePort();
 
@@ -163,8 +169,17 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
       print("Directory does not exist. Creating it...");
       dir.createSync(recursive: true); // Creates the directory
     }
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == "pdfCallback") {
+        Map<dynamic, dynamic> data = call.arguments;
+        int progress = data["progress"];
+        String status = data["status"];
+
+        print("Progress: $progress, Status: $status");
+      }
+    });
     //create a new thread and make that alive so that we can run pdf operation side by side AND Not freez UI
-    createNewThread();
+    // createNewThread();
   }
 
   void _scrollToBottom() {
@@ -172,7 +187,31 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
   }
 
   void cancelPdfProcess() {
-    secondThread?.send(messageThread(name: Status.initiatecancelPdfProcess));
+    setState(() {
+      logOutput.clear();
+      isConverting = false;
+      progress = 0.0;
+    });
+    //secondThread?.send(messageThread(name: Status.initiatecancelPdfProcess));
+  }
+
+  void startListening() {
+    _subscription = const EventChannel('com.example/event')
+        .receiveBroadcastStream()
+        .listen((data) {
+      setState(() {
+        logOutput.write("$data\n\n");
+        progress = data!.toDouble();
+        _scrollToBottom();
+      });
+      print("Received from Java: $data");
+    });
+  }
+
+// Call this to stop listening
+  void stopListening() {
+    _subscription?.cancel(); // This triggers onCancel() in Android
+    _subscription = null;
   }
 
   /// **********************************************************************
@@ -263,17 +302,28 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
   }
 
   void processSelectedPdf() async {
-    // Start an isolate
     if (selectedFilePath != null) {
       setState(() {
         logOutput.clear();
         isConverting = true;
       });
-      secondThread?.send(messageThread(
-          name: Status.convertSelectedPdf, arguments: [selectedFilePath]));
+      startListening();
+      _channel.invokeMethod("processPdf", selectedFilePath);
     } else {
       showDialoge(message: "Please select a pdf file");
     }
+
+    // Start an isolate
+    // if (selectedFilePath != null) {
+    //   setState(() {
+    //     logOutput.clear();
+    //     isConverting = true;
+    //   });
+    //   secondThread?.send(messageThread(
+    //       name: Status.convertSelectedPdf, arguments: [selectedFilePath]));
+    // } else {
+    //   showDialoge(message: "Please select a pdf file");
+    // }
   }
 
   void showCustomFilePicker(BuildContext Parentcontext) async {
@@ -373,7 +423,9 @@ class _BookBridgeHomeState extends State<BookBridgeHome>
                               ? cancelPdfProcess
                               : processSelectedPdf,
                           icon: const Icon(Icons.play_circle),
-                          label: const Text("Start"),
+                          label: isConverting
+                              ? const Text("Cancel")
+                              : const Text("Start"),
                         ),
                       ),
                       const SizedBox(

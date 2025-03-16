@@ -113,7 +113,7 @@ Future<PdfProcessedData?> processPdfToBundles({
     final List<PerPdfSliceInfo?> pdfSliceAloowedToProcess =
         List.filled(pageCount, null, growable: false);
 
-    PdfDocument newPdfFile = getNewPdfFileInstance();
+    PdfDocument newPdfFile = getNewPdfFileInstance(loadedDocument);
     bool isAnySliceOfPdfCreated = false;
     int cancelTime = 0;
     for (var i = 0; i < pageCount; i++) {
@@ -165,7 +165,7 @@ Future<PdfProcessedData?> processPdfToBundles({
               PerPdfSliceInfo(pdf: newPdfFile, size: currentSlizeSizeinbyte);
           ++currentSlize;
 
-          newPdfFile = getNewPdfFileInstance();
+          newPdfFile = getNewPdfFileInstance(loadedDocument);
 
           currentSlizeSizeinbyte = 0;
           copyPage(newPdfFile, loadedPage);
@@ -234,7 +234,8 @@ int getPageSize(PdfPage loadedPage) {
   newDummydocument.pageSettings.margins.all = 0;
   PdfPage page = newDummydocument.pages.add();
 
-  page.graphics.drawPdfTemplate(template, const Offset(0, 0));
+  page.graphics.drawPdfTemplate(
+      template, const Offset(0, 0), loadedPage.getClientSize());
   List<int> pdfsize = newDummydocument.saveSync();
   //issue 01
   //newDummydocument.dispose(); some issue with this dispose and template -> some pdf faced issue like template
@@ -246,7 +247,8 @@ void copyPage(PdfDocument documentToAdd, PdfPage loadedPage) {
   try {
     PdfTemplate template = loadedPage.createTemplate();
     PdfPage page = documentToAdd.pages.add();
-    page.graphics.drawPdfTemplate(template, const Offset(0, 0));
+    page.graphics.drawPdfTemplate(
+        template, const Offset(0, 0), loadedPage.getClientSize());
   } catch (e) {
     print("Copy failed");
   }
@@ -258,9 +260,16 @@ bool isTextPresent(PdfDocument loadedDocument, int pagenumber) {
   return text.isNotEmpty;
 }
 
-PdfDocument getNewPdfFileInstance() {
+PdfDocument getNewPdfFileInstance(PdfDocument loadedDocument) {
   PdfDocument newPdfFile = PdfDocument();
-  newPdfFile.pageSettings.margins.all = 0;
+  print(loadedDocument.pageSettings.width);
+  print(loadedDocument.pageSettings.height);
+  newPdfFile.pageSettings.size = Size(
+      loadedDocument.pageSettings.width, loadedDocument.pageSettings.height);
+  newPdfFile.pageSettings.setMargins(0, 0, 0, 0);
+  newPdfFile.pageSettings.orientation = loadedDocument.pageSettings.orientation;
+  newPdfFile.pageSettings.rotate = loadedDocument.pageSettings.rotate;
+
   return newPdfFile;
 }
 

@@ -4,6 +4,11 @@ plugins {
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id "dev.flutter.flutter-gradle-plugin"
 }
+ repositories {
+        flatDir {
+            dirs 'libs'  // Add the path to the 'libs' directory
+        }
+    }
 
 android {
     namespace = "com.devakash.book_bridge"
@@ -43,4 +48,17 @@ android {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // https://mvnrepository.com/artifact/com.tom-roush/pdfbox-android
+
+    implementation(name: 'JP2ForAndroid-1.0.3', ext: 'aar')
+    implementation(name: 'pdfbox-android-2.0.27.0', ext: 'aar')
+    implementation 'org.bouncycastle:bcprov-jdk15on:1.70'
+    implementation 'org.bouncycastle:bcpkix-jdk15on:1.70'
+
+}
+
+
+
 
